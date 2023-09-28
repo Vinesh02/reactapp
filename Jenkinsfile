@@ -1,40 +1,37 @@
 pipeline {
     agent any
 
-    environment {
-        AWS_ACCOUNT_ID = "433796583082"
-        AWS_DEFAULT_REGION = "us-east-1"
-        IMAGE_REPO_NAME = "myrepo"
-        IMAGE_TAG = "latest"
-        REPOSITORY_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}"
-    }
-
     stages {
-        stage('Logging into AWS ECR') {
+        stage('Checkout') {
             steps {
-                script {
-                    def dockerLoginCmd = "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
-                    sh dockerLoginCmd
-                }
+                pull ''
             }
         }
 
-        stage('Building image') {
-            steps {
-                script {
-                    def dockerImage = docker.build("${IMAGE_REPO_NAME}:${IMAGE_TAG}")
-                }
-            }
-        }
+         stage('Build and Push Docker Image') {
+      agent any
+      environment {
+        AWS_REGION = 'us-east-1'
+        ECR_REPOSITORY_NAME = '433796583082.dkr.ecr.us-east-1.amazonaws.com/myrepo'
+        DOCKER_IMAGE_NAME = "myrepo"
+        DOCKERFILE_PATH = "." // e.g., "java-maven-sonar-argocd-helm-k8s/spring-boot-app/Dockerfile"
+      }
+      steps {
+        script {
+          // Build the Docker image
+          sh "docker build -t $DOCKER_IMAGE_NAME $DOCKERFILE_PATH"
 
-        stage('Pushing to ECR') {
-            steps {
-                script {
-                    sh "docker tag ${IMAGE_REPO_NAME}:${IMAGE_TAG} ${REPOSITORY_URI}:${IMAGE_TAG}"
-                    sh "docker push ${REPOSITORY_URI}:${IMAGE_TAG}"
-                }
-            }
+          // Log in to AWS ECR
+          sh "aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_NAME"
+
+          // Tag the Docker image with the ECR repository URI
+          def ecrImageURI = "$ECR_REPOSITORY_NAME:${BUILD_NUMBER}"
+          sh "docker tag $DOCKER_IMAGE_NAME $ecrImageURI"
+
+          // Push the image to ECR
+          sh "docker push $ecrImageURI"
         }
+      }
+    }
     }
 }
-
